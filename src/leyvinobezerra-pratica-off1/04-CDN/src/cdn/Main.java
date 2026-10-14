@@ -13,7 +13,7 @@ import edge.EdgeServer;
 import model.Requisicao;
 import model.Resposta;
 import origin.OriginServer;
-import router.Router;
+import geodns.GeoDnsServer;
 
 public final class Main {
     private static final int PORTA_ORIGEM_PADRAO = 5000;
@@ -28,6 +28,8 @@ public final class Main {
     }
 
     public static void main(String[] args) {
+        // Este ponto de entrada e um adaptador de linha de comando para os componentes;
+        // cada servidor tambem possui seu proprio main para execucao modular.
         try {
             if (args.length == 0) {
                 uso();
@@ -41,7 +43,8 @@ public final class Main {
                     iniciarEdge(args);
                     break;
                 case "router":
-                    iniciarRoteador(args);
+                case "geodns":
+                    iniciarGeoDns(args);
                     break;
                 case "client":
                     executarCliente(args);
@@ -81,8 +84,9 @@ public final class Main {
         executarServidor(edge::iniciar, edge);
     }
 
-    private static void iniciarRoteador(String[] args) throws Exception {
-        exigirQuantidade(args, 3, Integer.MAX_VALUE, "router <porta-udp> <localizacao=host:porta>...");
+    private static void iniciarGeoDns(String[] args) throws Exception {
+        exigirQuantidade(args, 3, Integer.MAX_VALUE,
+                "geodns <porta-udp> <localizacao=host:porta>...");
         int porta = inteiro(args[1], "porta-udp");
         Map<String, InetSocketAddress> rotas = new LinkedHashMap<String, InetSocketAddress>();
         for (int i = 2; i < args.length; i++) {
@@ -91,12 +95,13 @@ public final class Main {
                 throw new IllegalArgumentException("Rota inválida, use localizacao=host:porta: " + args[i]);
             }
             String localizacao = args[i].substring(0, separador);
-            if (rotas.put(localizacao, Router.parsearEndereco(args[i].substring(separador + 1))) != null) {
+            if (rotas.put(localizacao,
+                    GeoDnsServer.parsearEndereco(args[i].substring(separador + 1))) != null) {
                 throw new IllegalArgumentException("Localização duplicada: " + localizacao);
             }
         }
-        Router router = new Router(porta, rotas);
-        executarServidor(router::iniciar, router);
+        GeoDnsServer geoDns = new GeoDnsServer(porta, rotas);
+        executarServidor(geoDns::iniciar, geoDns);
     }
 
     private static void executarCliente(String[] args) throws Exception {
@@ -163,6 +168,7 @@ public final class Main {
         System.err.println("  origin [porta]");
         System.err.println("  edge <porta-edge> <host-origem> <porta-origem> <host-anunciado> [capacidade-cache] [ttl-segundos]");
         System.err.println("  router <porta-udp> <localizacao=host:porta>...");
+        System.err.println("  geodns <porta-udp> <localizacao=host:porta>...");
         System.err.println("  client <host-router> <porta-router> <localizacao> <arquivo>");
         System.err.println("  update <host-origem> <porta-origem> <arquivo> <novo-conteudo>");
     }

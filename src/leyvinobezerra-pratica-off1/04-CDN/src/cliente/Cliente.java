@@ -22,7 +22,9 @@ public final class Cliente {
 
     public static Resposta baixar(String hostRoteador, int portaRoteador,
                                   String localizacao, String arquivo) throws IOException {
-        InetSocketAddress edge = consultarRoteador(hostRoteador, portaRoteador, localizacao);
+        // GeoDNS resolve o ponto de presenca antes da conexao TCP; assim o cliente
+        // nao precisa conhecer a topologia nem a origem do conteudo.
+        InetSocketAddress edge = consultarGeoDns(hostRoteador, portaRoteador, localizacao);
         try (Socket socket = new Socket()) {
             socket.connect(edge, TIMEOUT_MILLIS);
             socket.setSoTimeout(TIMEOUT_MILLIS);
@@ -33,8 +35,10 @@ public final class Cliente {
         }
     }
 
-    private static InetSocketAddress consultarRoteador(String host, int porta, String localizacao)
+    private static InetSocketAddress consultarGeoDns(String host, int porta, String localizacao)
             throws IOException {
+        // A consulta UDP e curta e sem estado: o endereco da resposta identifica apenas
+        // o solicitante atual, enquanto a rota e configurada no servico GeoDNS.
         byte[] pedido = localizacao.getBytes(StandardCharsets.UTF_8);
         try (DatagramSocket socket = new DatagramSocket()) {
             socket.setSoTimeout(TIMEOUT_MILLIS);
@@ -45,23 +49,43 @@ public final class Cliente {
             try {
                 socket.receive(resposta);
             } catch (SocketTimeoutException e) {
-                throw new IOException("Tempo esgotado aguardando resposta do roteador", e);
+                throw new IOException("Tempo esgotado aguardando resposta do GeoDNS", e);
             }
             String texto = new String(resposta.getData(), resposta.getOffset(),
                     resposta.getLength(), StandardCharsets.UTF_8);
             if (texto.startsWith("ERROR ")) {
-                throw new IOException("Roteador: " + texto.substring(6));
+                throw new IOException("GeoDNS: " + texto.substring(6));
             }
             int separador = texto.lastIndexOf(':');
             if (separador <= 0 || separador == texto.length() - 1) {
-                throw new IOException("Resposta inválida do roteador: " + texto);
+                throw new IOException("Resposta inválida do GeoDNS: " + texto);
             }
             try {
                 int portaEdge = Integer.parseInt(texto.substring(separador + 1));
                 return new InetSocketAddress(texto.substring(0, separador), portaEdge);
             } catch (IllegalArgumentException e) {
-                throw new IOException("Endereço inválido recebido do roteador: " + texto, e);
+                throw new IOException("Endereço inválido recebido do GeoDNS: " + texto, e);
             }
         }
+    }
+
+    public static void main(String[] args) throws Exception {
+        if (args.length != 4) {
+            throw new IllegalArgumentException(
+                    "Uso: Cliente <host-geodns> <porta-udp> <localizacao> <arquivo>");
+        }
+        int porta;
+        try {
+            porta = Integer.parseInt(args[1]);
+        } catch (NumberFormatException exception) {
+            throw new IllegalArgumentException("A porta UDP deve ser um inteiro", exception);
+        }
+
+        Resposta resposta = baixar(args[0], porta, args[2], args[3]);
+        if (!resposta.isSucesso()) {
+            throw new IOException(resposta.getMensagem());
+        }
+        System.out.println("Resultado: " + resposta.getMensagem());
+        System.out.println(resposta.getConteudo());
     }
 }

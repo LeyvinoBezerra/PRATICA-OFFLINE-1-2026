@@ -1,4 +1,4 @@
-package router;
+package geodns;
 
 import java.io.IOException;
 import java.net.DatagramPacket;
@@ -13,12 +13,14 @@ import java.util.Map;
 
 import util.Log;
 
-public final class Router implements AutoCloseable {
+public final class GeoDnsServer implements AutoCloseable {
     private final DatagramSocket socket;
+    // Snapshot somente-leitura evita que a tabela de roteamento mude enquanto o servidor
+    // atende datagramas; configuracoes novas entram ao reiniciar o componente.
     private final Map<String, InetSocketAddress> rotas;
     private volatile boolean executando;
 
-    public Router(int porta, Map<String, InetSocketAddress> rotas) throws SocketException {
+    public GeoDnsServer(int porta, Map<String, InetSocketAddress> rotas) throws SocketException {
         if (porta < 1 || porta > 65535) {
             throw new IllegalArgumentException("Porta deve estar entre 1 e 65535");
         }
@@ -31,13 +33,15 @@ public final class Router implements AutoCloseable {
 
     public void iniciar() {
         executando = true;
-        Thread thread = new Thread(this::atender, "router-udp");
+        Thread thread = new Thread(this::atender, "geodns-udp");
         thread.start();
-        Log.info("ROUTER", "Servidor UDP iniciado na porta " + socket.getLocalPort()
+        Log.info("GEODNS", "Servidor UDP iniciado na porta " + socket.getLocalPort()
                 + " com " + rotas.size() + " rotas");
     }
 
     private void atender() {
+        // O buffer e reutilizado para evitar alocacao por pacote; DatagramPacket atualiza
+        // seu comprimento a cada receive e somente os bytes recebidos sao decodificados.
         byte[] buffer = new byte[1024];
         while (executando) {
             DatagramPacket pedido = new DatagramPacket(buffer, buffer.length);
@@ -52,11 +56,11 @@ public final class Router implements AutoCloseable {
                 socket.send(new DatagramPacket(bytes, bytes.length, pedido.getAddress(), pedido.getPort()));
             } catch (SocketException e) {
                 if (executando) {
-                    Log.erro("ROUTER", "Falha no socket UDP: " + e.getMessage());
+                    Log.erro("GEODNS", "Falha no socket UDP: " + e.getMessage());
                 }
             } catch (IOException e) {
                 if (executando) {
-                    Log.erro("ROUTER", "Falha ao responder: " + e.getMessage());
+                    Log.erro("GEODNS", "Falha ao responder: " + e.getMessage());
                 }
             }
         }
@@ -77,6 +81,37 @@ public final class Router implements AutoCloseable {
         } catch (IOException | NumberFormatException e) {
             throw new IllegalArgumentException("Endereço inválido: " + valor, e);
         }
+    }
+
+    public static void main(String[] args) throws Exception {
+        if (args.length < 2) {
+            throw new IllegalArgumentException(
+                    "Uso: GeoDnsServer <porta-udp> <localizacao=host:porta>...");
+        }
+        int porta;
+        try {
+            porta = Integer.parseInt(args[0]);
+        } catch (NumberFormatException exception) {
+            throw new IllegalArgumentException("A porta UDP deve ser um inteiro", exception);
+        }
+
+        Map<String, InetSocketAddress> rotas = new LinkedHashMap<String, InetSocketAddress>();
+        for (int i = 1; i < args.length; i++) {
+            int separador = args[i].indexOf('=');
+            if (separador <= 0 || separador == args[i].length() - 1) {
+                throw new IllegalArgumentException(
+                        "Rota inválida, use localizacao=host:porta: " + args[i]);
+            }
+            String localizacao = args[i].substring(0, separador);
+            if (rotas.put(localizacao, parsearEndereco(args[i].substring(separador + 1))) != null) {
+                throw new IllegalArgumentException("Localização duplicada: " + localizacao);
+            }
+        }
+
+        GeoDnsServer geoDns = new GeoDnsServer(porta, rotas);
+        Runtime.getRuntime().addShutdownHook(new Thread(geoDns::close, "geodns-shutdown"));
+        geoDns.iniciar();
+        new java.util.concurrent.CountDownLatch(1).await();
     }
 
     @Override

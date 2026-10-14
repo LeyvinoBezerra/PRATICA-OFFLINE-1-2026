@@ -9,6 +9,7 @@ import java.net.Socket;
 import java.net.SocketException;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -20,8 +21,11 @@ public final class OriginServer implements AutoCloseable {
     private static final int TIMEOUT_MILLIS = 5000;
 
     private final ServerSocket servidor;
+    // Um pool fixo limita o uso de recursos, enquanto mapas concorrentes permitem que
+    // requisicoes simultaneas leiam/atualizem arquivos e registrem edges com seguranca.
     private final ExecutorService atendentes = Executors.newFixedThreadPool(16);
     private final Map<String, String> arquivos = new ConcurrentHashMap<String, String>();
+    // Chavear edges por host:porta permite invalidar cada instancia registrada sem duplicatas.
     private final Map<String, InetSocketAddress> edges = new ConcurrentHashMap<String, InetSocketAddress>();
     private volatile boolean executando;
 
@@ -117,6 +121,8 @@ public final class OriginServer implements AutoCloseable {
             return Resposta.erro("Arquivo não encontrado: " + arquivo);
         }
         arquivos.put(arquivo, conteudo);
+        // Invalidacao ativa propaga a mudanca imediatamente; o TTL continua sendo
+        // uma protecao para entradas quando um edge esta indisponivel.
         int invalidacoes = invalidarEdges(arquivo);
         Log.info("ORIGIN", "Arquivo atualizado: " + arquivo + "; invalidações enviadas=" + invalidacoes);
         return Resposta.sucesso("Arquivo atualizado; invalidações enviadas=" + invalidacoes, "");
@@ -160,5 +166,23 @@ public final class OriginServer implements AutoCloseable {
         } catch (IOException ignored) {
         }
         atendentes.shutdownNow();
+    }
+
+    public static void main(String[] args) throws Exception {
+        if (args.length > 1) {
+            throw new IllegalArgumentException("Uso: OriginServer [porta]");
+        }
+        int porta = 5000;
+        if (args.length == 1) {
+            try {
+                porta = Integer.parseInt(args[0]);
+            } catch (NumberFormatException exception) {
+                throw new IllegalArgumentException("A porta deve ser um inteiro", exception);
+            }
+        }
+        OriginServer origem = new OriginServer(porta);
+        Runtime.getRuntime().addShutdownHook(new Thread(origem::close, "origin-shutdown"));
+        origem.iniciar();
+        new CountDownLatch(1).await();
     }
 }

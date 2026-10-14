@@ -9,6 +9,7 @@ import java.net.Socket;
 import java.net.SocketException;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicLong;
@@ -26,7 +27,11 @@ public final class EdgeServer implements AutoCloseable {
     private final String hostAnunciado;
     private final ServerSocket servidor;
     private final Cache cache;
+    // Pool limitado evita criar threads sem limite sob carga e mantem concorrentes
+    // requisicoes de clientes isoladas do thread que aceita conexoes.
     private final ExecutorService atendentes = Executors.newFixedThreadPool(16);
+    // A geracao por arquivo impede que uma resposta antiga da origem seja reinserida
+    // no cache se uma invalidacao chegar enquanto o MISS ainda esta em andamento.
     private final ConcurrentHashMap<String, AtomicLong> geracoesInvalidacao =
             new ConcurrentHashMap<String, AtomicLong>();
     private final Object controleCache = new Object();
@@ -121,6 +126,8 @@ public final class EdgeServer implements AutoCloseable {
 
         Log.info(nome, "MISS " + arquivo);
         AtomicLong geracao = geracoesInvalidacao.computeIfAbsent(arquivo, chave -> new AtomicLong());
+        // Busca na origem ocorre fora do lock para nao bloquear outros hits; a geracao
+        // e conferida ao voltar para preservar invalidades concorrentes.
         long geracaoAntesDaBusca = geracao.get();
         Resposta respostaOrigem;
         try (Socket socket = conectarOrigem()) {
@@ -145,6 +152,8 @@ public final class EdgeServer implements AutoCloseable {
         AtomicLong geracao = geracoesInvalidacao.computeIfAbsent(arquivo, chave -> new AtomicLong());
         boolean removido;
         synchronized (controleCache) {
+            // Aumentar a geracao mesmo quando ainda nao ha entrada remove a janela de
+            // corrida entre uma leitura antiga da origem e a insercao no cache.
             geracao.incrementAndGet();
             removido = cache.invalidar(arquivo);
         }
@@ -185,5 +194,41 @@ public final class EdgeServer implements AutoCloseable {
         } catch (IOException ignored) {
         }
         atendentes.shutdownNow();
+    }
+
+    public static void main(String[] args) throws Exception {
+        if (args.length < 4 || args.length > 6) {
+            throw new IllegalArgumentException("Uso: EdgeServer <porta-edge> <host-origem> "
+                    + "<porta-origem> <host-anunciado> [capacidade-cache] [ttl-segundos]");
+        }
+        int porta = parsearInteiro(args[0], "porta-edge");
+        int portaOrigem = parsearInteiro(args[2], "porta-origem");
+        int capacidade = args.length >= 5 ? parsearInteiro(args[4], "capacidade-cache") : 100;
+        long ttlSegundos = args.length >= 6 ? parsearLongo(args[5], "ttl-segundos") : 10L;
+        if (ttlSegundos <= 0 || ttlSegundos > Long.MAX_VALUE / 1000L) {
+            throw new IllegalArgumentException("TTL deve ser positivo e expresso em segundos");
+        }
+
+        EdgeServer edge = new EdgeServer(args[3], porta, args[1], portaOrigem,
+                capacidade, ttlSegundos * 1000L);
+        Runtime.getRuntime().addShutdownHook(new Thread(edge::close, "edge-shutdown"));
+        edge.iniciar();
+        new CountDownLatch(1).await();
+    }
+
+    private static int parsearInteiro(String valor, String nome) {
+        try {
+            return Integer.parseInt(valor);
+        } catch (NumberFormatException exception) {
+            throw new IllegalArgumentException(nome + " deve ser um inteiro: " + valor, exception);
+        }
+    }
+
+    private static long parsearLongo(String valor, String nome) {
+        try {
+            return Long.parseLong(valor);
+        } catch (NumberFormatException exception) {
+            throw new IllegalArgumentException(nome + " deve ser um inteiro: " + valor, exception);
+        }
     }
 }

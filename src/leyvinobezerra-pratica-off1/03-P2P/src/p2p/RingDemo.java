@@ -16,6 +16,8 @@ import java.util.regex.Pattern;
 
 public final class RingDemo {
     private static final int NODE_COUNT = 6;
+    // A expressao regular valida a forma do identificador antes de converter o numero,
+    // evitando aceitar nomes arbitrarios como chaves de busca.
     private static final Pattern FILE_NAME = Pattern.compile("arquivo([0-9]+)\\.ext");
 
     private RingDemo() {
@@ -89,6 +91,8 @@ public final class RingDemo {
 
     private static final class RingNode implements Runnable {
         private final int id;
+        // Cada peer possui uma faixa contigua e encaminha ao sucessor; predecessor e
+        // sucessor calculados modularmente fecham o anel, inclusive nos extremos.
         private final int predecessor;
         private final int successor;
         private final int firstFile;
@@ -167,6 +171,8 @@ public final class RingDemo {
                 return;
             }
             if (hops >= NODE_COUNT - 1) {
+                // O limite garante que uma busca sem correspondencia percorra no maximo
+                // os outros peers uma vez, evitando ciclos infinitos.
                 response.println("NOT_FOUND|" + file);
                 return;
             }

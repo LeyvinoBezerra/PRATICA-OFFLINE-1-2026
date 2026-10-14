@@ -5,6 +5,8 @@ import java.io.DataOutputStream;
 import java.io.IOException;
 
 public final class Requisicao {
+    // Codigos estaveis compoem o protocolo binario comum aos processos, evitando que
+    // cada componente tenha de inventar sua propria serializacao de operacoes.
     public static final String BUSCAR = "FETCH";
     public static final String REGISTRAR = "REGISTER";
     public static final String INVALIDAR = "INVALIDATE";
@@ -41,6 +43,8 @@ public final class Requisicao {
     }
 
     public void enviar(DataOutputStream saida) throws IOException {
+        // DataOutputStream.writeUTF inclui o tamanho do texto: o receptor delimita cada
+        // campo sem depender de separadores que poderiam aparecer no conteudo.
         saida.writeUTF(operacao);
         switch (operacao) {
             case BUSCAR:

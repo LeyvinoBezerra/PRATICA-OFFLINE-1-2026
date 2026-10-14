@@ -9,11 +9,11 @@ independente e possui instruções de compilação e execução em seu README:
   diretório TCP, três calculadoras, operações e balanceamento round robin.
 - [03 — P2P](src/leyvinobezerra-pratica-off1/03-P2P/README.md): seis processos TCP em
   anel, busca distribuída e validação das entradas.
-- [04 — CDN](src/leyvinobezerra-pratica-off1/04-CDN/README.md): servidor de origem,
-  caches de borda, roteador UDP, TTL e invalidação ativa.
+- [04 — CDN](src/leyvinobezerra-pratica-off1/04-CDN/README.md): cliente, GeoDNS UDP,
+  serviço de edge, servidor de origem, TTL e invalidação ativa.
 - [Roteiro de apresentação](src/leyvinobezerra-pratica-off1/apresentacao/roteiro.md).
 
 Requer Java 17 ou superior. Compile cada módulo separadamente; os exemplos usam portas
 dinâmicas, exceto o MiniDNS (UDP 5354). Na CDN, os exemplos usam Origin TCP 5000,
-Router UDP 7000 e portas de Edge 6001/6002; consulte o README do módulo para alterar
+GeoDNS UDP 7000 e portas de Edge 6001/6002; consulte o README do módulo para alterar
 esses valores.

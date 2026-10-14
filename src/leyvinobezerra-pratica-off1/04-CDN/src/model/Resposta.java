@@ -5,6 +5,8 @@ import java.io.DataOutputStream;
 import java.io.IOException;
 
 public final class Resposta {
+    // Separar sucesso, mensagem e conteudo permite retornar metadados HIT/MISS e dados
+    // no mesmo envelope sem confundir uma falha com um arquivo vazio.
     private final boolean sucesso;
     private final String mensagem;
     private final String conteudo;
@@ -24,6 +26,8 @@ public final class Resposta {
     }
 
     public void enviar(DataOutputStream saida) throws IOException {
+        // Booleano e campos UTF formam um formato simples e simetrico entre cliente,
+        // edge e origem.
         saida.writeBoolean(sucesso);
         saida.writeUTF(mensagem);
         saida.writeUTF(conteudo);
